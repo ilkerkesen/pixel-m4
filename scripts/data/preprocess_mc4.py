@@ -22,14 +22,17 @@ import gc
 
 logger = logging.getLogger(__name__)
 
-#FIXME: fix this hardcoded path
-hashmap_path = "path/to/data/unicode-hash-map/results.jsonl"
+CURRENT_DIR = osp.abspath(osp.dirname(osp.abspath(__file__)))
 
-data = []
-with open(hashmap_path, 'r') as f:
-    for line in f:
-        data.append(json.loads(line))
-width_lookup = {k: v for d in data for k, v in d.items()} # returns width in pixels
+
+def read_unicode_width_map(file_path):
+    data = []
+    with open(file_path, 'r') as f:
+        for line in f:
+            data.append(json.loads(line))
+    width_lookup = {k: v for d in data for k, v in d.items()} # returns width in pixels
+    return width_lookup
+
 
 def string_to_ngrams(s:str, n:int=2):
      """
@@ -41,6 +44,7 @@ def string_to_ngrams(s:str, n:int=2):
          list: A list of character n-grams.
      """
      return [s[i:i + n] for i in range(0, len(s), n)]
+
 
 def string_to_ngrams_sep_wspace(s:str, n:int=2) -> list:
     """
@@ -70,6 +74,7 @@ def string_to_ngrams_sep_wspace(s:str, n:int=2) -> list:
                 i += n
     return bigrams
 
+
 def string_to_ngrams_sliding_window(s:str, n:int=2, w:int=1):
     """
     Takes a string and returns a list of character n-grams by splitting `s` on every `n` character.
@@ -82,6 +87,7 @@ def string_to_ngrams_sliding_window(s:str, n:int=2, w:int=1):
         list: A list of character n-grams.
     """
     return [s[i:i + n] for i in range(0, len(s), w)]    
+
     
 # class PangoCairoWidthEstimator:
 #     def __init__(self, text_renderer: PangoCairoTextRenderer):
@@ -91,7 +97,8 @@ def string_to_ngrams_sliding_window(s:str, n:int=2, w:int=1):
 #         text = text.replace("\n", " ")
 #         return self.text_renderer(string_to_ngrams_sliding_window(text)).num_text_patches
 
-def lookup_width_estimator(b:str, PPB:int=16) -> int:
+
+def lookup_width_estimator(b:str, width_lookup:dict, PPB:int=16) -> int:
     # NOTE change to have `PPB` be a function of the renderer config 
     # NOTE could potentially speed up by also making the width lookup a call to str.translate()
     # ... instead of a `dict` method
@@ -100,17 +107,20 @@ def lookup_width_estimator(b:str, PPB:int=16) -> int:
     else:
         return math.ceil(sum([width_lookup[x] for x in b]) / PPB)
 
+
 # Identify all Unicode characters in the Other category e.g. 'Cn' (Not assigned) and 'Cs' (Surrogate)
 chars_to_remove1 = {i: ' ' for i in range(0x0, 0x10FFFF+1) if unicodedata.category(chr(i)) in ('Cn', 'Cs', 'Co')}
 # Create a translation table from the dictionary
 removal_table = str.maketrans(chars_to_remove1)
 
-#FIXME: fix this hardcoded path
-with open("path/to/unrenderable_chars.json", "r") as f:
+
+#NOTE: better to remove it from the top-level, but leaving it like this for now.
+with open(osp.join(CURRENT_DIR, "unrenderable_chars.json"), "r") as f:
     unrenderable_chars = json.load(f)
-    
+
 unrenderable_chars_to_wspace = {str(k).encode("utf-8").decode("utf-8"): " " for k in unrenderable_chars.values()}
 removal_table2 = str.maketrans(unrenderable_chars_to_wspace)
+
 
 def preprocess_text(s:str, r:dict=removal_table) -> str:
     s = s.encode("utf-8").decode("utf-8") # Zero faith. Make sure that the string is in UTF-8
@@ -123,59 +133,62 @@ def preprocess_text(s:str, r:dict=removal_table) -> str:
 
 width_estimator = string_to_ngrams_sep_wspace
 
-def split(examples):
-    outputs = {
-        # "title": [],
-        "text": [],
-    }
 
-    for ex_text in examples["text"]:
-    # for book_idx, (ex_title, ex_text) in enumerate(zip(examples["title"], examples["text"])):
-        # ex_text = ex["text"]
-        doc = [t for t in ex_text.split("\n") if t.strip()] # and t.strip() != ex_title.strip()]
-        width = 0
-        block = ""
+def get_language_split_preprocess_fn(width_lookup):
+    def _split(examples):
+        outputs = {
+            # "title": [],
+            "text": [],
+        }
 
-        for line in doc:
-            line = preprocess_text(line)
+        for ex_text in examples["text"]:
+        # for book_idx, (ex_title, ex_text) in enumerate(zip(examples["title"], examples["text"])):
+            # ex_text = ex["text"]
+            doc = [t for t in ex_text.split("\n") if t.strip()] # and t.strip() != ex_title.strip()]
+            width = 0
+            block = ""
 
-            # Block is empty
-            if len(block) == 0:
-                block = line
-                width = sum(lookup_width_estimator(b) for b in width_estimator(line))
-                # width = len(width_estimator(line, n=2)) # NOTE change 
+            for line in doc:
+                line = preprocess_text(line)
 
-                # If already long enough on its own, add it to data
-                if width >= 529:
-                    # outputs["title"].append(ex_title)
-                    outputs["text"].append(block)
-                    block = ""
+                # Block is empty
+                if len(block) == 0:
+                    block = line
+                    width = sum(lookup_width_estimator(b, width_lookup) for b in width_estimator(line))
+                    # width = len(width_estimator(line, n=2)) # NOTE change 
 
-            # Block is not empty
-            else:
-                # Estimate width when adding new line to block
-                new_width = sum(lookup_width_estimator(b) for b in width_estimator(block + " " + line))
-                # new_width = len(width_estimator(block + " " + line, n=1)) # NOTE change 
-
-                # New line still fits; update block and width
-                if new_width < 529:
-                    block += f" {line}"
-                    width = new_width
-                # New line does not fit, add existing block to data if it is long enough, then reset block and width
-                else:
-                    if width >= 23:
+                    # If already long enough on its own, add it to data
+                    if width >= 529:
                         # outputs["title"].append(ex_title)
                         outputs["text"].append(block)
-                    block = line
-                    width = sum(lookup_width_estimator(b) for b in width_estimator(line))
-                    # width = len(width_estimator(line, n=1)) # NOTE change 
+                        block = ""
 
-        # If block not empty and longer than one row, append to data
-        if width >= 23:
-            # outputs["title"].append(ex_title)
-            outputs["text"].append(block)
+                # Block is not empty
+                else:
+                    # Estimate width when adding new line to block
+                    new_width = sum(lookup_width_estimator(b, width_lookup) for b in width_estimator(block + " " + line))
+                    # new_width = len(width_estimator(block + " " + line, n=1)) # NOTE change 
 
-    return outputs
+                    # New line still fits; update block and width
+                    if new_width < 529:
+                        block += f" {line}"
+                        width = new_width
+                    # New line does not fit, add existing block to data if it is long enough, then reset block and width
+                    else:
+                        if width >= 23:
+                            # outputs["title"].append(ex_title)
+                            outputs["text"].append(block)
+                        block = line
+                        width = sum(lookup_width_estimator(b) for b in width_estimator(line))
+                        # width = len(width_estimator(line, n=1)) # NOTE change 
+
+            # If block not empty and longer than one row, append to data
+            if width >= 23:
+                # outputs["title"].append(ex_title)
+                outputs["text"].append(block)
+
+        return outputs
+    return _split
 
 def main(args: argparse.Namespace):
     log_level = logging.INFO
@@ -202,12 +215,14 @@ def main(args: argparse.Namespace):
     os.makedirs(args.output_dir, exist_ok=True)
     arrow_cache_path ="arrow_cache96_cleaned"
     os.makedirs(os.path.join(args.output_dir, arrow_cache_path), exist_ok=True)
+    width_lookup = read_unicode_width_map(args.unicode_width_file)
+    preprocess_fn = get_language_split_preprocess_fn(width_lookup)
     
     for lang in ["en", "hi", "uk", "zh",]:
         output_dir = osp.abspath(osp.expanduser(args.output_dir))
         cache_dir = osp.abspath(osp.expanduser(args.cache_dir))
         dataset = load_dataset("mc4", lang, split="train", streaming=False, cache_dir=cache_dir, keep_in_memory=False)
-        dataset_split = dataset.map(split, batched=True, batch_size=1, remove_columns=dataset.column_names, num_proc=96, 
+        dataset_split = dataset.map(preprocess_fn, batched=True, batch_size=1, remove_columns=dataset.column_names, num_proc=96, 
                                     keep_in_memory=False, load_from_cache_file=False,
                                     cache_file_name=os.path.join(output_dir, arrow_cache_path,  f"preprocessed_mc4_bigrams_529_{lang}.arrow"))
         logger.info(f"Finished preprocessing C4, size: original = 364868892, split = {len(dataset_split)}")
@@ -229,13 +244,19 @@ if __name__ == "__main__":
     parser.add_argument(
         "--cache_dir",
         type=str,
-        help="Cache dir for downloading the data."
+        help="Cache dir for downloading the data.",
     )
     parser.add_argument(
         "--target_seq_length",
         type=int,
         default=529,
         help="Sequence length for rendering",
+    )
+    parser.add_argument(
+        "--unicode_width_file",
+        type=str,
+        required=True,
+        help="Hash map file, which contains widths of unicode characters.",
     )
     parsed_args = parser.parse_args()
 
