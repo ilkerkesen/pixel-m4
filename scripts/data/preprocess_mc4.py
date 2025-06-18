@@ -179,7 +179,7 @@ def get_language_split_preprocess_fn(width_lookup):
                             # outputs["title"].append(ex_title)
                             outputs["text"].append(block)
                         block = line
-                        width = sum(lookup_width_estimator(b) for b in width_estimator(line))
+                        width = sum(lookup_width_estimator(b, width_lookup=) for b in width_estimator(line))
                         # width = len(width_estimator(line, n=1)) # NOTE change 
 
             # If block not empty and longer than one row, append to data
