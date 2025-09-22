@@ -559,7 +559,7 @@ def main():
         model.config.label2id = {l: i for i, l in enumerate(label_list)}
         model.config.id2label = {id: label for label, id in config.label2id.items()}
 
-    modality = Modality.TEXT if config.model_type in ["bert", "roberta"] else Modality.IMAGE
+    modality = Modality.TEXT if config.model_type in ["bert", "roberta", "canine"] else Modality.IMAGE
     processor = get_processor(model_args, modality)
 
     if modality == Modality.IMAGE:

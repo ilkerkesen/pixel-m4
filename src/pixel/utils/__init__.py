@@ -1,6 +1,6 @@
 from .datasets import *
 from .defaults import *
-# from .logging import *
+from .logging import *
 from .misc import *
 from .modeling import *
 from .optimization import *
