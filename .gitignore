@@ -174,10 +174,11 @@ cython_debug/
 .pypirc
 
 # project specific
-logs/
-outputs/
-fallback_fonts_dir/
-data/
-exclude/
+/logs
+/outputs
+/fallback_fonts_dir
+/data
+/exclude
 cache/
 config/
+/wandb

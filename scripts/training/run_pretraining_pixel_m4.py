@@ -21,14 +21,12 @@ import sys
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, Optional
 
-import numpy as np
 import datasets
 import wandb
 from PIL import Image
 import torch
 import transformers
-from datasets import interleave_datasets, load_from_disk, concatenate_datasets, load_dataset
-from torch.utils.data import DataLoader
+from datasets import load_from_disk
 from time import time
 
 from pixel import (
@@ -47,8 +45,8 @@ from transformers import HfArgumentParser, TrainingArguments, ViTFeatureExtracto
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
-from pixel.data.rendering.pangocairo_renderer_bigrams_iso_char import PangoCairoTextRenderer 
-# from pixel.data.rendering.pangocairo_renderer_bigrams_iso_char_wspace import PangoCairoTextRenderer 
+from pixel.data.rendering.pangocairo_renderer_bigrams_iso_char import PangoCairoTextRenderer as BigramsRenderer
+from pixel.data.rendering.pangocairo_renderer import PangoCairoTextRenderer as ContinuousRenderer
 """ Pre-training a PIXEL model as an MAE (masked autoencoder)"""
 
 logger = logging.getLogger(__name__)
@@ -57,10 +55,6 @@ logger = logging.getLogger(__name__)
 check_min_version("4.17.0")
 
 require_version("datasets>=1.8.0", "To fix: pip install ./datasets")
-
-#MBERT_LANGS = ["af", "an", "ar", "ast", "az", "azb", "ba", "bar", "be", "bg", "bn", "bpy", "br", "bs", "ca", "ce", "ceb", "cs", "cv", "cy", "da", "de", "el", "en", "es", "et", "eu", "fa", "fi", "fr", "fy", "ga", "gl", "gu", "he", "hi", "hr", "ht", "hu", "hy", "id", "io", "is", "it", "ja", "jv", "ka", "kk", "kn", "ko", "ky", "la", "lb", "lmo", "lt", "lv", "mg", "min", "mk", "ml", "mn", "mr", "ms", "my", "nds", "ne", "new", "nl", "nn", "no", "oc", "pa", "pl", "pms", "pnb", "pt", "ro", "ru", "scn", "sco", "sh", "sk", "sl", "sq", "sr", "su", "sv", "sw", "ta", "te", "tg", "th", "tl", "tr", "tt", "uk", "ur", "uz", "vi", "vo", "war", "yo", "zh", "zh_classical"]
-#MBERT_LANGS = ["en", "vi", "ru", "zh", "zh_classical", "ja", "ko", "ar", "ur", "hi", "he", "ta", "bn", "th", "te", "el", "hy", "my", "ka", "ml", "kn", "gu", "pa"]
-# MBERT_LANGS = ["af"]
 
 @dataclass
 class DataTrainingArguments:
@@ -178,6 +172,12 @@ class ModelArguments:
     dropout_prob: float = field(
         default=0.1, metadata={"help": "Dropout probability for attention blocks"}
     )
+    fallback_fonts_dir: Optional[str] = field(
+        default=None, metadata={"help": "Path to directory containing fallback fonts for the text renderer."}
+    )
+    renderer_type: str = field(
+        default="continuous", metadata={"help": "Type of text renderer to use: 'continuous' or 'bigrams'."}
+    )
 
     def __post_init__(self):
         if self.masking_cumulative_span_weights is not None:
@@ -263,129 +263,19 @@ def main(config_dict: Dict[str, Any] = None):
                 "the `--output_dir` or add `--overwrite_output_dir` to train from scratch."
             )
 
-    # train_datasets = []
-    # eval_datasets = []
-    # for lang in MBERT_LANGS:
-    #     dataset = load_from_disk(os.path.join(data_args.data_dir, lang)).train_test_split(test_size=0.0001, seed=training_args.seed)
-    #     train_datasets.append(dataset["train"])
-    #     eval_datasets.append(dataset["test"])
+    logger.info(f"Loading dataset from {data_args.data_dir}")
+    dataset = load_from_disk(data_args.data_dir)
+    train_dataset = dataset["train"]
+    validation_dataset = dataset["validation"]
 
-    # # Exponential smoothing to oversample low-resource languages and undersample high-resource languages
-    # coeff = 0.7
-    # probs = np.array([1.0 * len(d) for d in train_datasets])
-    # probs /= probs.sum()
-    # probs = np.array([p ** coeff for p in probs])
-    # probs /= probs.sum()
-
-    # logger.info("***** Interleaving training datasets *****")
-    # for lang, prob in zip(MBERT_LANGS, probs):
-    #     logger.info(f"\tlang = {lang}, sampling probability = {prob:.4f}")
-
-    # train_dataset = interleave_datasets(train_datasets, probabilities=probs, seed=training_args.seed, stopping_strategy="all_exhausted")
-    # validation_dataset = interleave_datasets(eval_datasets, probabilities=probs, seed=training_args.seed, stopping_strategy="all_exhausted")
-
-    # logger.info(f"Size of combined training dataset = {len(train_dataset)}")
-    # logger.info(f"Size of combined validation dataset = {len(validation_dataset)}")
-    # for dataset_name in ["preprocessed_bookcorpus_sep_whitespace_filtered", "preprocessed_wikipedia_sep_whitespace_filtered"]:
-    #     logger.info(f"Loading {dataset_name} from {data_args.data_dir}")
-
-    #     dataset = load_from_disk(os.path.join(data_args.data_dir, dataset_name)).train_test_split(
-    #         test_size=0.0001, seed=training_args.seed
-    #     )
-    #     train_datasets.append(dataset["train"])
-    #     eval_datasets.append(dataset["test"])
-
-    # logger.info("***** Concatenating datasets *****")
-
-    # train_dataset = concatenate_datasets(train_datasets).shuffle(seed=training_args.seed)
-    # validation_dataset = concatenate_datasets(eval_datasets).shuffle(seed=training_args.seed)
-    
-
-    # logger.info(f"Size of combined training dataset = {len(train_dataset)}")
-    # logger.info(f"Size of combined validation dataset = {len(validation_dataset)}")
-    
-    # train_shards = {"train": [os.path.join(data_args.data_dir, f) for f in 
-    #                           os.listdir(data_args.data_dir) if f.endswith('.arrow')]}
-    EN_ARROW_FILES = 51 // 2 + 1
-    HI_ARROW_FILES = 655 // 2 + 2
-    UK_ARROW_FILES = 335 // 2 + 2
-    ZH_ARROW_FILES = 505 // 2 + 2 
-    
-    #FIXME: fix these hardcoded paths
-    en_path = "path/to/data/preprocessed-c4-train/preprocessed_c4_bigrams_529_sep_wspace_cleaned_rmCo"
-    hi_path = "path/to/data/preprocessed-mc4-train/preprocessed_mc4_bigrams_529_hi"
-    uk_path = "path/to/data/preprocessed-mc4-train/preprocessed_mc4_bigrams_529_uk"
-    zh_path = "path/to/data/preprocessed-mc4-train/preprocessed_mc4_bigrams_529_zh"
-    
-    rng = np.random.default_rng(training_args.seed) # specify seed for reproducibility
-    
-    en_train_shards = [os.path.join(en_path, f) for f in os.listdir(en_path) if f.endswith('.arrow')]
-    chosen_en_files = rng.choice(en_train_shards, EN_ARROW_FILES, replace=False).tolist()
-    # Due to OOM errors, we need to split the training data into two batches
-    second_chosen_en_files = rng.choice([f for f in en_train_shards if f not in chosen_en_files], EN_ARROW_FILES, replace=False).tolist() 
-    # en_train_dataset = load_dataset("arrow", data_files=chosen_en_files, split="train")
-
-    hi_train_shards = [os.path.join(hi_path, f) for f in os.listdir(hi_path) if f.endswith('.arrow')]
-    chosen_hi_files = rng.choice(hi_train_shards, HI_ARROW_FILES, replace=False).tolist()
-    second_chosen_hi_files = rng.choice([f for f in hi_train_shards if f not in chosen_hi_files], HI_ARROW_FILES, replace=False).tolist()
-    # hi_train_dataset = load_dataset("arrow", data_files=chosen_hi_files, split="train")
-    
-    uk_train_shards = [os.path.join(uk_path, f) for f in os.listdir(uk_path) if f.endswith('.arrow')]
-    chosen_uk_files = rng.choice(uk_train_shards, UK_ARROW_FILES, replace=False).tolist()
-    second_chosen_uk_files = rng.choice([f for f in uk_train_shards if f not in chosen_uk_files], UK_ARROW_FILES, replace=False).tolist()
-    # uk_train_dataset = load_dataset("arrow", data_files=chosen_uk_files, split="train")
-    
-    zh_train_shards = [os.path.join(zh_path, f) for f in os.listdir(zh_path) if f.endswith('.arrow')]
-    chosen_zh_files = rng.choice(zh_train_shards, ZH_ARROW_FILES, replace=False).tolist()
-    second_chosen_zh_files = rng.choice([f for f in zh_train_shards if f not in chosen_zh_files], ZH_ARROW_FILES, replace=False).tolist()
-    # zh_train_dataset = load_dataset("arrow", data_files=chosen_zh_files, split="train")
-    
-    assert len(en_train_shards) > 0, "No en train shards found"
-    assert len(hi_train_shards) > 0, "No hi train shards found"
-    assert len(uk_train_shards) > 0, "No uk train shards found"
-    assert len(zh_train_shards) > 0, "No zh train shards found"
-    # not_chosen_arrow_files = [f for f in train_shards if f not in chosen_arrow_files]
-    # second_batch_arrow_files = rng.choice(not_chosen_arrow_files, 96, replace=False).tolist()
-    
-    logger.info("***** Interleaving training datasets *****")
-    # Probabilities
-    probs = [0.25, 0.25, 0.25, 0.25]
-    train_dataset = interleave_datasets(
-        [
-            load_dataset("arrow", data_files=second_chosen_en_files, split="train"), 
-            load_dataset("arrow", data_files=second_chosen_hi_files, split="train"), 
-            load_dataset("arrow", data_files=second_chosen_uk_files, split="train"), 
-            load_dataset("arrow", data_files=second_chosen_zh_files, split="train")
-        ], 
-        probabilities=probs, 
-        seed=training_args.seed,
-        stopping_strategy="first_exhausted"
-        )
-    
-    logger.info("***** Done interleaving datasets *****")
-    # train_dataset = load_dataset("arrow", data_files=second_batch_arrow_files, split="train", keep_in_memory=False)
-    validation_dataset = load_dataset("arrow", data_files=zh_train_shards[0], split="train", keep_in_memory=False)
-        
-    # Filter the datasets
+    # Filter out empty text entries
     start_time = time()
-    # NUM_CORES_FILTER = 12 # NOTE hardcoded for now during experiments
-    train_dataset = train_dataset.filter(lambda x: bool(x['text']))
-    validation_dataset = validation_dataset.filter(lambda x: bool(x['text']))
-    logger.info(f"Filtering took {time() - start_time} seconds")
-    
-    def filter_empty(example) -> bool:
-        return bool(example)
-        # return bool(example['data'])
-        
-    # Filter the datasets
-    # start_time = time()
-    # NUM_CORES_FILTER = 98 # NOTE hardcoded for now during experiments
-    # train_dataset = train_dataset.filter(filter_empty, num_proc=NUM_CORES_FILTER)
-    # validation_dataset = validation_dataset.filter(filter_empty, num_proc=NUM_CORES_FILTER)
+    # train_dataset = train_dataset.filter(lambda x: bool(x['text']))
+    # validation_dataset = validation_dataset.filter(lambda x: bool(x['text']))
     # logger.info(f"Filtering took {time() - start_time} seconds")
-    
-    # Shuffle train dataset as well 
-    train_dataset = train_dataset.shuffle(seed=training_args.seed) # NOTE also try without shuffling since it might slow down 
+
+    # Shuffle train dataset
+    train_dataset = train_dataset.shuffle(seed=training_args.seed) 
 
     config_kwargs = {
         "cache_dir": model_args.cache_dir,
@@ -448,8 +338,11 @@ def main(config_dict: Dict[str, Any] = None):
         model = PIXELForPreTraining._from_config(config, torch_dtype=dtype)
 
     # Load text renderer
-    #FIXME: fix the hardcoded path
-    text_renderer = PangoCairoTextRenderer.from_pretrained(model_args.text_renderer_name_or_path, fallback_fonts_dir="path/to/data/fallback_fonts_dd2248copy", rgb=True, **config_kwargs)
+    if model_args.renderer_type == "bigrams":
+        TextRenderer = BigramsRenderer
+    else:
+        TextRenderer = ContinuousRenderer
+    text_renderer = TextRenderer.from_pretrained(model_args.text_renderer_name_or_path, fallback_fonts_dir=model_args.fallback_fonts_dir, rgb=True, **config_kwargs)
     text_renderer.max_seq_length = 511
 
     feature_extractor = ViTFeatureExtractor()
@@ -478,7 +371,7 @@ def main(config_dict: Dict[str, Any] = None):
         logger.info("Reinitializing embeddings. Warning: This should not happen when continuing pretraining from a PIXEL model.")
         model.vit.embeddings = PIXELEmbeddings(model.config).to(dtype)
         model.decoder.decoder_pos_embed = torch.nn.Parameter(
-            torch.zeros((1, max_seq_length + 1, 512)), requires_grad=False
+            torch.zeros((1, max_seq_length + 1, config.decoder_hidden_size)), requires_grad=False
         )
         decoder_pos_embed = get_2d_sincos_pos_embed(
             model.decoder.decoder_pos_embed.shape[-1], int(max_seq_length ** 0.5), add_cls_token=True
