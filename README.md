@@ -40,11 +40,15 @@ pip install -e .
 Note that, this environment only supports systems with CUDA. If you want to use PIXEL-M4, you need to install non-CUDA PyTorch packages with the same version numbers.
 
 3. Verify Installation on Japanese Dependency Parsing
+
 ```bash
 # Create a folder in which we keep the data
 mkdir -p data
-# Get and extract the UD data for parsing and POS tagging
-wget -c https://lindat.mff.cuni.cz/repository/xmlui/bitstream/handle/11234/1-4758/ud-treebanks-v2.10.tgz
+
+# Download and extract the UD v2.10 treebanks
+curl -L -o ud-treebanks-v2.10.tgz \
+  "https://lindat.mff.cuni.cz/repository/server/api/core/bitstreams/handle/11234/1-4758/ud-treebanks-v2.10.tgz"
+
 tar xvf ud-treebanks-v2.10.tgz -C data
 
 # treebank, directories and hyperparameters
