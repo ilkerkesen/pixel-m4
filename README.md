@@ -39,7 +39,7 @@ pip install -e .
 
 Note that, this environment only supports systems with CUDA. If you want to use PIXEL-M4, you need to install non-CUDA PyTorch packages with the same version numbers.
 
-### 3. Verify Installation on Japanese Dependency Parsing
+3. Verify Installation on Japanese Dependency Parsing
 
 ```bash
 # Create a folder in which we keep the data
