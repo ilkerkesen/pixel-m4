@@ -122,16 +122,31 @@ Importantly, we repeated the same experiment for eight times using different see
 ## Citation & Contact
 
 ```bibtex
-@article{kesen-etal-2025-multilingual,
-  title={Multilingual Pretraining for Pixel Language Models},
-  author={Ilker Kesen and Jonas F. Lotz and Ingo Ziegler and Phillip Rust and Desmond Elliott},
-  journal={arXiv preprint},
-  year={2025},
-  url={https://arxiv.org/abs/2505.21265}
+@inproceedings{kesen-etal-2025-multilingual,
+    title = "Multilingual Pretraining for Pixel Language Models",
+    author = "Kesen, Ilker  and
+      Lotz, Jonas F.  and
+      Ziegler, Ingo  and
+      Rust, Phillip  and
+      Elliott, Desmond",
+    editor = "Christodoulopoulos, Christos  and
+      Chakraborty, Tanmoy  and
+      Rose, Carolyn  and
+      Peng, Violet",
+    booktitle = "Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing",
+    month = nov,
+    year = "2025",
+    address = "Suzhou, China",
+    publisher = "Association for Computational Linguistics",
+    url = "https://aclanthology.org/2025.emnlp-main.1504/",
+    doi = "10.18653/v1/2025.emnlp-main.1504",
+    pages = "29594--29611",
+    ISBN = "979-8-89176-332-6",
+    abstract = "Pixel language models operate directly on images of rendered text, eliminating the need for a fixed vocabulary. While these models have demonstrated strong capabilities for downstream cross-lingual transfer, multilingual pretraining remains underexplored. We introduce PIXEL-M4, a model pretrained on four visually and linguistically diverse languages: English, Hindi, Ukrainian, and Simplified Chinese. Multilingual evaluations on semantic and syntactic tasks show that PIXEL-M4 outperforms an English-only counterpart on non-Latin scripts. Word-level probing analyses confirm that PIXEL-M4 captures rich linguistic features, even in languages not seen during pretraining. Furthermore, an analysis of its hidden representations shows that multilingual pretraining yields a semantic embedding space closely aligned across the languages used for pretraining. This work demonstrates that multilingual pretraining substantially enhances the capability of pixel language models to effectively support a diverse set of languages."
 }
 ```
 
 Feel free to open an issue here or send an email to ask questions about PIXEL-M4 or report problems with the code! We emphasize that this is experimental research code.
 
 **Contact:**
-Ilker Kesen (ilke--at--di.ku.dk)
+Ilker Kesen (name.surname--at--hu-berlin.de)
